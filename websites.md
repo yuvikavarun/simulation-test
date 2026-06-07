@@ -1,0 +1,5 @@
+- LinkedIn
+- Medium
+- Research Gate
+- GitHub
+- Vercel
