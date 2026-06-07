@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Physics Playground</title>
+    <!-- Using Tailwind CSS for modern, responsive UI styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0f172a; /* Tailwind slate-900 */
+            color: #f8fafc;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        .controls-overlay {
+            background: rgba(30, 41, 59, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        /* Custom range slider styling */
+        input[type=range] {
+            accent-color: #3b82f6;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- UI Overlay -->
+    <div class="absolute top-4 left-4 p-5 rounded-xl controls-overlay shadow-2xl w-80 z-10 select-none flex flex-col gap-4">
+        <div>
+            <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+                Physics Engine
+            </h1>
+            <p class="text-xs text-slate-400 mt-1">Click anywhere to spawn objects.</p>
+        </div>
+
+        <div class="space-y-3 mt-2">
+            <!-- Gravity Control -->
+            <div>
+                <div class="flex justify-between text-sm mb-1">
+                    <label for="gravityRange" class="font-medium text-slate-300">Gravity</label>
+                    <span id="gravityValue" class="text-blue-400">0.5</span>
+                </div>
+                <input type="range" id="gravityRange" min="-1" max="2" step="0.1" value="0.5" class="w-full">
+            </div>
+
+            <!-- Bounciness (Restitution) Control -->
+            <div>
+                <div class="flex justify-between text-sm mb-1">
+                    <label for="bounceRange" class="font-medium text-slate-300">Bounciness</label>
+                    <span id="bounceValue" class="text-blue-400">0.8</span>
+                </div>
+                <input type="range" id="bounceRange" min="0.1" max="1.2" step="0.1" value="0.8" class="w-full">
+            </div>
+            
+            <!-- Friction Control -->
+            <div>
+                <div class="flex justify-between text-sm mb-1">
+                    <label for="frictionRange" class="font-medium text-slate-300">Ground Friction</label>
+                    <span id="frictionValue" class="text-blue-400">0.99</span>
+                </div>
+                <input type="range" id="frictionRange" min="0.8" max="1" step="0.01" value="0.99" class="w-full">
+            </div>
+        </div>
+
+        <div class="flex gap-2 mt-2">
+            <button id="clearBtn" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg text-sm font-medium transition-colors">
+                Clear All
+            </button>
+            <button id="spawnBtn" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm font-medium transition-colors">
+                Spawn 10
+            </button>
+        </div>
+    </div>
+
+    <!-- The Physics Canvas -->
+    <canvas id="physicsCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('physicsCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Physics Environment Variables
+        let gravity = 0.5;
+        let bounciness = 0.8;
+        let friction = 0.99;
+        let objects = [];
+
+        // Setup Canvas Size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Color Palette for objects
+        const colors = [
+            '#ef4444', // red
+            '#3b82f6', // blue
+            '#10b981', // green
+            '#f59e0b', // yellow
+            '#8b5cf6', // purple
+            '#ec4899', // pink
+            '#06b6d4'  // cyan
+        ];
+
+        // Utility: Get random number in range
+        function randomFloat(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        // Physics Object Class
+        class Ball {
+            constructor(x, y, radius) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.mass = radius; // Mass is proportional to size
+                
+                // Random initial velocity
+                this.dx = randomFloat(-5, 5);
+                this.dy = randomFloat(-5, 5);
+                
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+                
+                // Add a little highlight for 3D effect
+                ctx.beginPath();
+                ctx.arc(this.x - this.radius * 0.3, this.y - this.radius * 0.3, this.radius * 0.2, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            update() {
+                // Apply Gravity
+                this.dy += gravity;
+
+                // Move Object
+                this.x += this.dx;
+                this.y += this.dy;
+
+                // Floor Collision
+                if (this.y + this.radius >= canvas.height) {
+                    this.y = canvas.height - this.radius;
+                    this.dy = -this.dy * bounciness;
+                    this.dx *= friction; // Apply friction when rolling/bouncing on ground
+                }
+                
+                // Ceiling Collision
+                if (this.y - this.radius <= 0) {
+                    this.y = this.radius;
+                    this.dy = -this.dy * bounciness;
+                }
+
+                // Right Wall Collision
+                if (this.x + this.radius >= canvas.width) {
+                    this.x = canvas.width - this.radius;
+                    this.dx = -this.dx * bounciness;
+                }
+
+                // Left Wall Collision
+                if (this.x - this.radius <= 0) {
+                    this.x = this.radius;
+                    this.dx = -this.dx * bounciness;
+                }
+            }
+        }
+
+        // Object-to-Object Collision Detection and Resolution
+        function resolveCollisions() {
+            for (let i = 0; i < objects.length; i++) {
+                for (let j = i + 1; j < objects.length; j++) {
+                    let obj1 = objects[i];
+                    let obj2 = objects[j];
+
+                    let dx = obj2.x - obj1.x;
+                    let dy = obj2.y - obj1.y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+                    let minDistance = obj1.radius + obj2.radius;
+
+                    if (distance < minDistance) {
+                        // 1. Separate the objects to prevent getting stuck
+                        let overlap = minDistance - distance;
+                        let nx = dx / distance; // Normalized vector x
+                        let ny = dy / distance; // Normalized vector y
+
+                        // Move each object away from each other based on their mass ratio
+                        let totalMass = obj1.mass + obj2.mass;
+                        let m1Ratio = obj2.mass / totalMass;
+                        let m2Ratio = obj1.mass / totalMass;
+
+                        obj1.x -= nx * overlap * m1Ratio;
+                        obj1.y -= ny * overlap * m1Ratio;
+                        obj2.x += nx * overlap * m2Ratio;
+                        obj2.y += ny * overlap * m2Ratio;
+
+                        // 2. Resolve velocities (1D elastic collision along the collision normal)
+                        // Calculate relative velocity
+                        let rvx = obj2.dx - obj1.dx;
+                        let rvy = obj2.dy - obj1.dy;
+                        
+                        // Calculate relative velocity in terms of the normal direction
+                        let velAlongNormal = rvx * nx + rvy * ny;
+
+                        // Do not resolve if velocities are separating
+                        if (velAlongNormal > 0) continue;
+
+                        // Calculate restitution (bounciness factor between these two objects)
+                        let e = bounciness;
+
+                        // Calculate impulse scalar
+                        let j = -(1 + e) * velAlongNormal;
+                        j /= (1 / obj1.mass + 1 / obj2.mass);
+
+                        // Apply impulse
+                        let impulseX = j * nx;
+                        let impulseY = j * ny;
+
+                        obj1.dx -= impulseX / obj1.mass;
+                        obj1.dy -= impulseY / obj1.mass;
+                        obj2.dx += impulseX / obj2.mass;
+                        obj2.dy += impulseY / obj2.mass;
+                    }
+                }
+            }
+        }
+
+        // Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Clear canvas with a slight trail effect (alpha < 1) or completely (alpha = 1)
+            ctx.fillStyle = '#0f172a'; // Match background
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Update and draw all objects
+            for (let i = 0; i < objects.length; i++) {
+                objects[i].update();
+                objects[i].draw();
+            }
+
+            // Handle interactions between objects
+            resolveCollisions();
+        }
+
+        // --- Event Listeners & Interaction ---
+
+        // Spawn ball on click
+        canvas.addEventListener('mousedown', (e) => {
+            // Don't spawn if clicking the UI panel
+            if (e.clientX < 350 && e.clientY < 350) return; 
+            
+            const radius = randomFloat(10, 30);
+            objects.push(new Ball(e.clientX, e.clientY, radius));
+        });
+
+        // Spawn multiple button
+        document.getElementById('spawnBtn').addEventListener('click', () => {
+            for (let i = 0; i < 10; i++) {
+                const radius = randomFloat(10, 30);
+                const x = randomFloat(radius, canvas.width - radius);
+                const y = randomFloat(radius, canvas.height / 2); // Spawn in upper half
+                objects.push(new Ball(x, y, radius));
+            }
+        });
+
+        // Clear button
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            objects = [];
+        });
+
+        // UI Sliders updating physics variables
+        const gravityRange = document.getElementById('gravityRange');
+        const gravityValue = document.getElementById('gravityValue');
+        gravityRange.addEventListener('input', (e) => {
+            gravity = parseFloat(e.target.value);
+            gravityValue.innerText = gravity.toFixed(1);
+        });
+
+        const bounceRange = document.getElementById('bounceRange');
+        const bounceValue = document.getElementById('bounceValue');
+        bounceRange.addEventListener('input', (e) => {
+            bounciness = parseFloat(e.target.value);
+            bounceValue.innerText = bounciness.toFixed(1);
+        });
+
+        const frictionRange = document.getElementById('frictionRange');
+        const frictionValue = document.getElementById('frictionValue');
+        frictionRange.addEventListener('input', (e) => {
+            friction = parseFloat(e.target.value);
+            frictionValue.innerText = friction.toFixed(2);
+        });
+
+        // Start the engine
+        animate();
+        
+        // Initial spawn
+        document.getElementById('spawnBtn').click();
+
+    </script>
+</body>
+</html>
